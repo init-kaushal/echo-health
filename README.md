@@ -97,7 +97,3 @@ For production deployment:
 4. Use a production-grade ASGI server
 5. Set up SSL/TLS certificates
 6. Implement proper security measures
-
-## License
-
-[Your chosen license] 

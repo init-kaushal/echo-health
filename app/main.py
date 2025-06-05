@@ -5,10 +5,44 @@ from app.services.interakt_service import InteraktService
 from app.services.eka_service import EkaService
 from typing import Dict
 import time
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any
 
 load_dotenv()
-for key, value in os.environ.items():
-    print(f"{key}={value}")
+
+# Pydantic models for request validation
+class CustomerTraits(BaseModel):
+    name: Optional[str] = None
+    row_number: Optional[int] = None
+    whatsapp_opted_in: Optional[bool] = None
+    doctor_name: Optional[str] = Field(None, alias="Doctor Name")
+
+class Customer(BaseModel):
+    id: str
+    channel_phone_number: str
+    phone_number: str
+    country_code: str
+    traits: CustomerTraits
+
+class Message(BaseModel):
+    id: str
+    chat_message_type: str
+    message_status: str
+    received_at_utc: str
+    message_content_type: str
+    media_url: Optional[str] = None
+    message: Optional[str] = None
+    meta_data: Dict[str, Any] = {}
+
+class WebhookData(BaseModel):
+    customer: Customer
+    message: Message
+
+class WebhookRequest(BaseModel):
+    version: str
+    timestamp: str
+    type: str
+    data: WebhookData
 
 app = FastAPI(
     title="WhatsApp Voice to Prescription Service",
@@ -46,32 +80,53 @@ async def startup_event():
     app.start_time = time.time()
 
 @app.post("/webhook/whatsapp")
-async def whatsapp_webhook(request: Request, background_tasks: BackgroundTasks):
+async def whatsapp_webhook(webhook: WebhookRequest, background_tasks: BackgroundTasks):
     """
     Webhook endpoint for receiving WhatsApp voice messages from Interakt
     """
     try:
-        payload = await request.json()
-        
-        # Extract voice message URL and phone number
-        # Note: Adjust these based on actual Interakt webhook format
-        if payload.get("type") != "voice":
-            return {"status": "ignored", "message": "Not a voice message"}
-        
-        media_url = payload["media"]["url"]
-        phone_number = payload["from"]["phone_number"]
-        
+        # Validate message type
+        if webhook.data.message.message_content_type != "Audio":
+            return {
+                "status": "ignored",
+                "message": f"Not an audio message. Got: {webhook.data.message.message_content_type}"
+            }
+
+        if not webhook.data.message.media_url:
+            raise HTTPException(status_code=400, detail="No media URL provided for audio message")
+
+        # Extract relevant information
+        media_url = webhook.data.message.media_url
+        phone_number = webhook.data.customer.phone_number
+        customer_name = webhook.data.customer.traits.name or "Unknown"
+        doctor_name = webhook.data.customer.traits.doctor_name or "Unknown"
+
         # Download voice message
         voice_content = await interakt_service.download_voice_message(media_url)
         
         # Send to Eka Care for prescription generation
-        prescription_request = await eka_service.create_prescription(voice_content)
+        prescription_request = await eka_service.create_prescription(
+            voice_content,
+            metadata={
+                "customer_name": customer_name,
+                "doctor_name": doctor_name,
+                "phone_number": phone_number
+            }
+        )
         
         # Store phone number for callback matching
         request_id = prescription_request["requestId"]
         phone_number_store[request_id] = phone_number
         
-        return {"status": "success", "message": "Processing voice message"}
+        return {
+            "status": "success",
+            "message": "Processing voice message",
+            "details": {
+                "customer_name": customer_name,
+                "doctor_name": doctor_name,
+                "message_id": webhook.data.message.id
+            }
+        }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 class EkaService:
     def __init__(self):
         self.base_url = "https://api.eka.care/"
-        self.client_id = os.getenv("EKA_CLIENT_ID")  # Replace with actual client ID
-        self.client_secret = os.getenv("17a252a7-6ea9-4171-af23-583b5d0b6c77")
+        self.client_id = os.getenv("EKA_CLIENT_ID")
+        self.client_secret = os.getenv("EKA_CLIENT_SECRET")
         self.access_token = None
         self.refresh_token = None
         self.token_expiry = None
@@ -71,18 +71,33 @@ class EkaService:
             "Content-Type": "application/json"
         }
 
-    async def create_prescription(self, voice_text: str) -> Dict[str, Any]:
+    async def create_prescription(self, voice_text: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Create a prescription using Eka's AI service
+        
+        Args:
+            voice_text: The voice message content
+            metadata: Additional information about the request (customer name, doctor name, etc.)
         """
         headers = await self.get_auth_headers()
+        
+        request_data = {
+            "text": voice_text
+        }
+        
+        if metadata:
+            request_data.update({
+                "customer_name": metadata.get("customer_name"),
+                "doctor_name": metadata.get("doctor_name"),
+                "phone_number": metadata.get("phone_number")
+            })
         
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
                     f"{self.base_url}ai/ekascribe",
                     headers=headers,
-                    json={"text": voice_text}
+                    json=request_data
                 )
                 
                 if response.status_code == 401:
@@ -92,7 +107,7 @@ class EkaService:
                     response = await client.post(
                         f"{self.base_url}ai/ekascribe",
                         headers=headers,
-                        json={"text": voice_text}
+                        json=request_data
                     )
                 
                 response.raise_for_status()
