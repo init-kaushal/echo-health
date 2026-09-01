@@ -30,7 +30,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "."
-          target: "~/flask-app"
+          target: "~/echo-health"
 
       - name: Restart app on server
         uses: appleboy/ssh-action@v1.0.3
@@ -39,6 +39,6 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            cd ~/flask-app
+            cd ~/echo-health
             pip install -r requirements.txt
-            sudo systemctl restart flask-app
+            sudo systemctl restart echo-health

@@ -1,28 +1,57 @@
-# WhatsApp Voice to Prescription Service
+# ChotiParchi — Voice2Rx on WhatsApp
 
-This service integrates WhatsApp (via Interakt) with Eka Care's API to convert voice messages into prescriptions. When a user sends a voice message through WhatsApp, the service processes it and generates a prescription using Eka Care's AI service, then sends the prescription back to the user via WhatsApp.
+🏆 1st Place, Ekathon 2025 (Eka.Care × AWS Hackathon)
 
-## Features
+A WhatsApp bot that turns a doctor's voice note into a structured prescription. A
+doctor sends a voice message describing a consultation; the service downloads it,
+sends it to Eka Care's AI (Ekascribe) to generate a prescription, and delivers the
+formatted result back to the same WhatsApp chat — no manual typing or data entry.
 
-- Receives voice messages from WhatsApp via Interakt webhooks
-- Processes voice messages and sends them to Eka Care's AI service
-- Generates prescriptions using Eka Care's API
-- Sends generated prescriptions back to users via WhatsApp
+## How it works
+
+```
+Doctor sends voice note on WhatsApp
+        │
+        ▼
+Interakt webhook → POST /webhook/whatsapp
+        │  (downloads the audio, forwards it to Eka Care)
+        ▼
+Eka Care AI transcribes + generates the prescription (async)
+        │
+        ▼
+Eka Care webhook → POST /webhook/prescription
+        │  (looks up which chat requested it, formats the message)
+        ▼
+Interakt sends the prescription back on WhatsApp
+```
+
+The two webhook endpoints are decoupled because prescription generation is
+asynchronous: the first call kicks off the job and returns immediately; Eka Care
+calls back on the second endpoint once the prescription is ready. A `request_id`
+returned by Eka Care is used to match the callback back to the WhatsApp chat that
+asked for it.
+
+## Tech stack
+
+- **FastAPI** — webhook endpoints and request validation (Pydantic models)
+- **Eka Care API** — voice-to-prescription AI (Ekascribe)
+- **Interakt** — WhatsApp Business API provider (receiving/sending messages)
+- **httpx** — async HTTP client for both integrations
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.8+
 - Eka Care API credentials (Client ID and Client Secret)
-- Interakt API credentials
-- A publicly accessible URL for webhook endpoints
-- Webhooks registered in Eka Care backend
+- An Interakt account and API key, with a WhatsApp Business number connected
+- A publicly reachable URL for the two webhook endpoints (e.g. via a reverse proxy
+  or a tunnel like ngrok during local development)
 
 ## Setup
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd <repository-name>
+   git clone https://github.com/init-kaushal/echo-health.git
+   cd echo-health
    ```
 
 2. Create a virtual environment and activate it:
@@ -36,64 +65,44 @@ This service integrates WhatsApp (via Interakt) with Eka Care's API to convert v
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file from the example:
+4. Create a `.env` file from the example and fill in your credentials:
    ```bash
    cp .env.example .env
    ```
 
-5. Edit the `.env` file with your credentials:
-   ```
-   EKA_CLIENT_ID=your_eka_client_id
-   EKA_CLIENT_SECRET=your_eka_client_secret
-   INTERAKT_API_KEY=your_interakt_api_key
-   ```
+## Running the service
 
-## Running the Service
+```bash
+python -m app.main
+```
 
-1. Start the service:
-   ```bash
-   python -m app.main
-   ```
+Then register the two webhook URLs against your public URL:
+- Interakt → WhatsApp webhook: `https://your-domain.com/webhook/whatsapp`
+- Eka Care → prescription callback: `https://your-domain.com/webhook/prescription`
 
-2. Ensure your webhooks are properly registered:
-   - Register the WhatsApp webhook URL in Interakt: `https://your-domain.com/webhook/whatsapp`
-   - Register the prescription callback URL in Eka Care backend: `https://your-domain.com/webhook/prescription`
+## API endpoints
 
-## Usage
+| Endpoint | Purpose |
+|---|---|
+| `POST /webhook/whatsapp` | Receives an incoming WhatsApp voice message from Interakt and kicks off prescription generation |
+| `POST /webhook/prescription` | Receives the generated prescription from Eka Care and sends it back via WhatsApp |
+| `GET /health` | Basic healthcheck |
 
-1. Users send voice messages to your WhatsApp business number
-2. The service receives the voice message via Interakt webhook
-3. The voice message is processed and sent to Eka Care's AI service
-4. When the prescription is generated, Eka Care sends it back via webhook
-5. The service formats the prescription and sends it back to the user via WhatsApp
+## Known limitations
 
-## API Endpoints
+This was built for a hackathon (Ekathon 2025) and is shared here as a portfolio
+reference rather than a production-ready service. Notably:
 
-- `POST /webhook/whatsapp`: Receives incoming WhatsApp voice messages
-- `POST /webhook/prescription`: Receives prescription generation callbacks from Eka Care
+- **Webhook endpoints aren't authenticated.** Neither Interakt's nor Eka Care's
+  signature/verification scheme is checked, so anyone who discovers the URLs
+  could POST arbitrary payloads. Add signature verification before deploying
+  this for real use.
+- **In-memory request store.** `phone_number_store` (matching a prescription
+  request back to the WhatsApp chat that asked for it) is a plain in-process
+  dict — it's lost on restart and won't work across multiple instances. Swap
+  in a real database (Redis, Postgres, etc.) for production use.
+- No rate limiting, retry handling, or structured logging.
 
-## Security Considerations
+## License
 
-- Keep your `.env` file secure and never commit it to version control
-- Use HTTPS for all webhook endpoints
-- Implement proper authentication for your webhooks in production
-- Store request IDs and phone numbers in a proper database for production use
-
-## Error Handling
-
-The service includes basic error handling for:
-- Invalid webhook payloads
-- Failed voice message downloads
-- Failed prescription generation
-- Missing request IDs in callbacks
-- API authentication issues
-
-## Production Considerations
-
-For production deployment:
-1. Use a proper database instead of in-memory storage
-2. Implement request validation and rate limiting
-3. Add logging and monitoring
-4. Use a production-grade ASGI server
-5. Set up SSL/TLS certificates
-6. Implement proper security measures
+[MIT](LICENSE)
